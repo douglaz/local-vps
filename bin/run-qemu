@@ -1,0 +1,27 @@
+#!/run/current-system/sw/bin/bash
+set -euo pipefail
+
+export PATH="/run/current-system/sw/bin:/etc/profiles/per-user/${USER:-$(/run/current-system/sw/bin/id -un)}/bin:/nix/var/nix/profiles/default/bin:${PATH:-}"
+
+VM_DIR="${LOCAL_VPS_DIR:-$HOME/local-vps}"
+SSH_PORT="${LOCAL_VPS_SSH_PORT:-2222}"
+CPUS="${LOCAL_VPS_CPUS:-8}"
+RAM_MB="${LOCAL_VPS_RAM:-32768}"
+
+mkdir -p "$VM_DIR/logs" "$VM_DIR/run"
+rm -f "$VM_DIR/run/qemu-monitor.sock"
+
+exec nix-shell -p qemu --run "exec qemu-system-x86_64 \
+  -name local-vps \
+  -enable-kvm \
+  -cpu host \
+  -smp $CPUS \
+  -m $RAM_MB \
+  -pidfile '$VM_DIR/run/qemu.pid' \
+  -drive file='$VM_DIR/disks/local-vps.qcow2',if=virtio,format=qcow2 \
+  -drive file='$VM_DIR/seed/seed.img',if=virtio,format=raw,readonly=on \
+  -netdev user,id=net0,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22 \
+  -device virtio-net-pci,netdev=net0 \
+  -display none \
+  -serial file:'$VM_DIR/logs/serial.log' \
+  -monitor unix:'$VM_DIR/run/qemu-monitor.sock',server,nowait"

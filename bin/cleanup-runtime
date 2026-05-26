@@ -1,0 +1,8 @@
+#!/run/current-system/sw/bin/bash
+set -euo pipefail
+
+export PATH="/run/current-system/sw/bin:/etc/profiles/per-user/${USER:-$(/run/current-system/sw/bin/id -un)}/bin:/nix/var/nix/profiles/default/bin:${PATH:-}"
+
+VM_DIR="${LOCAL_VPS_DIR:-$HOME/local-vps}"
+
+rm -f "$VM_DIR/run/qemu-monitor.sock" "$VM_DIR/run/qemu.pid"

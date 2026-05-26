@@ -1,0 +1,76 @@
+#!/run/current-system/sw/bin/bash
+set -euo pipefail
+
+export PATH="/run/current-system/sw/bin:/etc/profiles/per-user/${USER:-$(/run/current-system/sw/bin/id -un)}/bin:/nix/var/nix/profiles/default/bin:${PATH:-}"
+
+VM_DIR="${LOCAL_VPS_DIR:-$HOME/local-vps}"
+DISK_SIZE="${LOCAL_VPS_DISK_SIZE:-100G}"
+IMAGE_URL="${LOCAL_VPS_IMAGE_URL:-https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img}"
+SUMS_URL="${LOCAL_VPS_SUMS_URL:-https://cloud-images.ubuntu.com/noble/current/SHA256SUMS}"
+IMAGE_NAME="$(basename "$IMAGE_URL")"
+IMAGE_PATH="$VM_DIR/images/$IMAGE_NAME"
+DISK_PATH="$VM_DIR/disks/local-vps.qcow2"
+USER_DATA_TEMPLATE="$VM_DIR/seed/user-data.example"
+USER_DATA="$VM_DIR/seed/user-data"
+SEED_IMAGE="$VM_DIR/seed/seed.img"
+PUBKEY_FILE="${LOCAL_VPS_PUBKEY_FILE:-}"
+
+if ! command -v qemu-img >/dev/null 2>&1 || ! command -v cloud-localds >/dev/null 2>&1; then
+  if [ "${LOCAL_VPS_IN_NIX_SHELL:-0}" != "1" ] && command -v nix-shell >/dev/null 2>&1; then
+    exec env LOCAL_VPS_IN_NIX_SHELL=1 nix-shell -p qemu cloud-utils --run "bash '$0'"
+  fi
+  echo "Missing qemu-img or cloud-localds. Install qemu and cloud-utils." >&2
+  exit 1
+fi
+
+if [ -z "$PUBKEY_FILE" ]; then
+  if [ -f "$HOME/.ssh/id_ed25519.pub" ]; then
+    PUBKEY_FILE="$HOME/.ssh/id_ed25519.pub"
+  elif [ -f "$HOME/.ssh/id_rsa.pub" ]; then
+    PUBKEY_FILE="$HOME/.ssh/id_rsa.pub"
+  else
+    echo "No SSH public key found. Set LOCAL_VPS_PUBKEY_FILE=/path/to/key.pub." >&2
+    exit 1
+  fi
+fi
+
+if [ ! -f "$PUBKEY_FILE" ]; then
+  echo "SSH public key file does not exist: $PUBKEY_FILE" >&2
+  exit 1
+fi
+
+mkdir -p "$VM_DIR/images" "$VM_DIR/disks" "$VM_DIR/seed" "$VM_DIR/logs" "$VM_DIR/run"
+
+PUBKEY="$(sed -n '1p' "$PUBKEY_FILE")"
+if [ -z "$PUBKEY" ]; then
+  echo "SSH public key file is empty: $PUBKEY_FILE" >&2
+  exit 1
+fi
+
+if [ ! -f "$USER_DATA_TEMPLATE" ]; then
+  echo "Missing cloud-init template: $USER_DATA_TEMPLATE" >&2
+  exit 1
+fi
+
+awk -v key="$PUBKEY" '{ gsub("SSH_AUTHORIZED_KEY_PLACEHOLDER", key); print }' \
+  "$USER_DATA_TEMPLATE" > "$USER_DATA"
+
+curl -L --fail --continue-at - --output "$IMAGE_PATH" "$IMAGE_URL"
+curl -L --fail --output "$VM_DIR/images/SHA256SUMS" "$SUMS_URL"
+(
+  cd "$VM_DIR/images"
+  grep "$IMAGE_NAME\$" SHA256SUMS | sha256sum -c -
+)
+
+if [ -e "$DISK_PATH" ]; then
+  echo "Disk already exists: $DISK_PATH" >&2
+  echo "Move or remove it before creating a new VM disk." >&2
+  exit 1
+fi
+
+qemu-img convert -O qcow2 "$IMAGE_PATH" "$DISK_PATH"
+qemu-img resize "$DISK_PATH" "$DISK_SIZE"
+cloud-localds "$SEED_IMAGE" "$USER_DATA" "$VM_DIR/seed/meta-data"
+
+echo "Created $DISK_PATH with virtual size $DISK_SIZE"
+echo "Created $SEED_IMAGE"

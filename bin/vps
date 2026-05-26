@@ -1,0 +1,93 @@
+#!/run/current-system/sw/bin/bash
+set -euo pipefail
+
+export PATH="/run/current-system/sw/bin:/etc/profiles/per-user/${USER:-$(/run/current-system/sw/bin/id -un)}/bin:/nix/var/nix/profiles/default/bin:${PATH:-}"
+
+UNIT="local-vps.service"
+VM_DIR="${LOCAL_VPS_DIR:-$HOME/local-vps}"
+SSH_PORT="${LOCAL_VPS_SSH_PORT:-2222}"
+SSH_USER="${LOCAL_VPS_USER:-vps}"
+
+usage() {
+  cat <<EOF
+Usage: vps <command> [args]
+
+Commands:
+  start       Start the local VPS
+  stop        Stop the local VPS
+  restart     Restart the local VPS
+  status      Show systemd service status
+  enable      Start automatically when your user session starts
+  disable     Disable automatic start
+  wait-ssh    Wait until SSH is reachable
+  ssh         SSH into the VM as $SSH_USER
+  log         Follow the VM serial console log
+  monitor     Open the QEMU monitor socket
+EOF
+}
+
+wait_ssh() {
+  for _ in $(seq 1 120); do
+    if ssh \
+      -o BatchMode=yes \
+      -o ConnectTimeout=2 \
+      -o UserKnownHostsFile="$VM_DIR/known_hosts" \
+      -o StrictHostKeyChecking=accept-new \
+      -p "$SSH_PORT" \
+      "$SSH_USER@127.0.0.1" \
+      true >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "SSH login did not become ready on 127.0.0.1:$SSH_PORT" >&2
+  return 1
+}
+
+case "${1:-}" in
+  start)
+    systemctl --user start "$UNIT"
+    wait_ssh
+    ;;
+  stop)
+    systemctl --user stop "$UNIT"
+    ;;
+  restart)
+    systemctl --user restart "$UNIT"
+    wait_ssh
+    ;;
+  status)
+    systemctl --user status "$UNIT" --no-pager
+    ;;
+  enable)
+    systemctl --user enable "$UNIT"
+    ;;
+  disable)
+    systemctl --user disable "$UNIT"
+    ;;
+  wait-ssh)
+    wait_ssh
+    ;;
+  ssh)
+    shift
+    exec ssh \
+      -o UserKnownHostsFile="$VM_DIR/known_hosts" \
+      -o StrictHostKeyChecking=accept-new \
+      -p "$SSH_PORT" \
+      "$SSH_USER@127.0.0.1" \
+      "$@"
+    ;;
+  log)
+    exec tail -f "$VM_DIR/logs/serial.log"
+    ;;
+  monitor)
+    exec nc -U "$VM_DIR/run/qemu-monitor.sock"
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

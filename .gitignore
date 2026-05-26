@@ -1,0 +1,9 @@
+/disks/
+/images/
+/logs/
+/run/
+/known_hosts
+/seed/seed.img
+/seed/user-data
+*.qcow2
+*.img

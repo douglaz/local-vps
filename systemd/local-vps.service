@@ -1,0 +1,20 @@
+[Unit]
+Description=Local VPS QEMU VM
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=LOCAL_VPS_DIR=%h/local-vps
+Environment=LOCAL_VPS_CPUS=8
+Environment=LOCAL_VPS_RAM=32768
+Environment=LOCAL_VPS_SSH_PORT=2222
+ExecStart=%h/local-vps/bin/run-qemu
+ExecStop=%h/local-vps/bin/powerdown-qemu
+ExecStopPost=%h/local-vps/bin/cleanup-runtime
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=100
+
+[Install]
+WantedBy=default.target
