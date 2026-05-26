@@ -41,7 +41,7 @@ mkdir -p "$VM_DIR/disks" "$VM_DIR/logs" "$VM_DIR/run"
 echo "Building NixOS image (this may take a few minutes)..."
 LOCAL_VPS_SSH_KEY="$PUBKEY" nix build --impure "$VM_DIR#default" --out-link "$VM_DIR/disks/result"
 
-cp "$VM_DIR/disks/result/nixos.qcow2" "$DISK_PATH"
+install -m 644 "$VM_DIR/disks/result/nixos.qcow2" "$DISK_PATH"
 rm "$VM_DIR/disks/result"
 
 nix-shell -p qemu --run "qemu-img resize '$DISK_PATH' '$DISK_SIZE'"
